@@ -134,7 +134,7 @@ func NewOptionsFromFilePath(filePath string) (*Options, error) {
 // certsFromPath returns true when the options object is configured to load
 // certificates from paths; false when we have inline certificates.
 func (o *Options) certsFromPath() bool {
-	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != ""
+	return o.CertPath != "" && o.KeyPath != "" && o.CaPath != "" && o.TaPath != ""
 }
 
 // hasAuthInfo returns true if:
@@ -329,6 +329,22 @@ func parseCA(p []string, o *Options, basedir string) error {
 	return nil
 }
 
+func parseTA(p []string, o *Options, basedir string) error {
+	e := fmt.Errorf("%w: %s", errBadCfg, "ta expects a valid file")
+	if len(p) != 1 {
+		return e
+	}
+	ta := toAbs(p[0], basedir)
+	if sub, _ := isSubdir(basedir, ta); !sub {
+		return fmt.Errorf("%w: %s", errBadCfg, "ta must be below config path")
+	}
+	if !existsFile(ta) {
+		return e
+	}
+	o.TaPath = ta
+	return nil
+}
+
 func parseCert(p []string, o *Options, basedir string) error {
 	e := fmt.Errorf("%w: %s", errBadCfg, "cert expects a valid file")
 	if len(p) != 1 {
@@ -381,22 +397,6 @@ func parseAuthUser(p []string, o *Options, basedir string) error {
 		return err
 	}
 	o.Username, o.Password = creds[0], creds[1]
-	return nil
-}
-
-func parseTLSAuth(p []string, o *Options, basedir string) error {
-	e := fmt.Errorf("%w: %s", errBadCfg, "tls-auth expects a valid file")
-	if len(p) != 2 {
-		return e
-	}
-	auth := toAbs(p[0], basedir)
-	if sub, _ := isSubdir(basedir, auth); !sub {
-		return fmt.Errorf("%w: %s", errBadCfg, "auth must be below config path")
-	}
-	if !existsFile(auth) {
-		return e
-	}
-	o.TaPath = auth
 	return nil
 }
 
@@ -464,7 +464,7 @@ var pMapDir = map[string]interface{}{
 	"cert":           parseCert,
 	"key":            parseKey,
 	"auth-user-pass": parseAuthUser,
-	"tls-auth":       parseTLSAuth,
+	"tls-auth":       parseTA,
 }
 
 func parseOption(o *Options, dir, key string, p []string, lineno int) error {
@@ -556,7 +556,7 @@ func getOptionsFromLines(lines []string, dir string) (*Options, error) {
 
 func isOpeningTag(key string) bool {
 	switch key {
-	case "<ca>", "<cert>", "<key>":
+	case "<ca>", "<cert>", "<key>", "<tls-auth>":
 		return true
 	default:
 		return false
@@ -565,7 +565,7 @@ func isOpeningTag(key string) bool {
 
 func isClosingTag(key string) bool {
 	switch key {
-	case "</ca>", "</cert>", "</key>":
+	case "</ca>", "</cert>", "</key>", "</tls-auth>":
 		return true
 	default:
 		return false
@@ -580,6 +580,8 @@ func parseTag(tag string) string {
 		return "cert"
 	case "<key>", "</key>":
 		return "key"
+	case "<tls-auth>", "</tls-auth>":
+		return "ta"
 	default:
 		return ""
 	}
@@ -598,9 +600,10 @@ func parseInlineTag(o *Options, tag string, buf *bytes.Buffer) error {
 		o.Cert = b
 	case "key":
 		o.Key = b
+	case "ta":
+		o.Ta = b
 	default:
 		return fmt.Errorf("%w: unknown tag: %s", errBadInput, tag)
-
 	}
 	return nil
 }
