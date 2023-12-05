@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"time"
 )
 
 const (
@@ -98,10 +99,6 @@ type packetProcessor interface {
 	Process(p *packet) []byte
 }
 
-type cipher interface {
-	New() hash.Hash
-}
-
 type mockPacketProcessor struct {
 }
 
@@ -125,7 +122,22 @@ func newTaPacketProcessor(secretKey string, hash crypto.Hash) taPacketProcessor 
 }
 
 func (proc taPacketProcessor) Process(p *packet) []byte {
-	return p.Bytes()
+	pBytes := p.Bytes()
+	proc.hmacHash.Reset()
+
+	timestamp := uint32(time.Now().Unix())
+	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
+	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(p.id))
+	replay := append(packetIDBytes, timeBytes...)
+
+	proc.hmacHash.Write(replay)
+	proc.hmacHash.Write(pBytes)
+
+	hmacBytes := proc.hmacHash.Sum(nil)
+	result := append(pBytes[:9], hmacBytes...)
+	result = append(result, pBytes[9:]...)
+
+	return result
 }
 
 // parsePacketFromBytes produces a packet after parsing the common header.

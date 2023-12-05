@@ -39,6 +39,7 @@ type session struct {
 	ackQueue        chan *packet
 	mu              sync.Mutex
 	Log             Logger
+	builder         packetBuilder
 }
 
 // newSession returns a session ready to be used.
