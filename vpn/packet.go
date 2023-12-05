@@ -93,6 +93,7 @@ type packet struct {
 }
 
 type packetBuilder struct {
+	taProcessor packetProcessor
 }
 
 type packetProcessor interface {
@@ -106,17 +107,35 @@ type taPacketProcessor struct {
 	hmacHash hash.Hash
 }
 
+func newPacketBuilder(taBytes []byte, hash crypto.Hash) *packetBuilder {
+	var taProcessor packetProcessor
+	if taBytes != nil {
+		taProcessor = newTaPacketProcessor(string(taBytes), hash)
+	} else {
+		taProcessor = mockPacketProcessor{}
+	}
+
+	return &packetBuilder{
+		taProcessor: taProcessor,
+	}
+}
+
+func (builder *packetBuilder) buildPacket(p *packet) []byte {
+	result := builder.taProcessor.Process(p)
+	return result
+}
+
 func (proc mockPacketProcessor) Process(p *packet) []byte {
 	return p.Bytes()
 }
 
-func newTaPacketProcessor(secretKey string, hash crypto.Hash) taPacketProcessor {
+func newTaPacketProcessor(secretKey string, hash crypto.Hash) *taPacketProcessor {
 	l := len(secretKey)
 	secretKey = secretKey[3*l/4:]
 	size := hash.Size()
 	secret, _ := hex.DecodeString(secretKey)
 
-	return taPacketProcessor{
+	return &taPacketProcessor{
 		hmacHash: hmac.New(hash.New, secret[:size]),
 	}
 }
