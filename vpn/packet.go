@@ -6,9 +6,13 @@ package vpn
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/hmac"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 )
 
@@ -85,6 +89,43 @@ type packet struct {
 	remoteSessionID sessionID
 	payload         []byte
 	acks            ackArray
+}
+
+type packetBuilder struct {
+}
+
+type packetProcessor interface {
+	Process(p *packet) []byte
+}
+
+type cipher interface {
+	New() hash.Hash
+}
+
+type mockPacketProcessor struct {
+}
+
+type taPacketProcessor struct {
+	hmacHash hash.Hash
+}
+
+func (proc mockPacketProcessor) Process(p *packet) []byte {
+	return p.Bytes()
+}
+
+func newTaPacketProcessor(secretKey string, hash crypto.Hash) taPacketProcessor {
+	l := len(secretKey)
+	secretKey = secretKey[3*l/4:]
+	size := hash.Size()
+	secret, _ := hex.DecodeString(secretKey)
+
+	return taPacketProcessor{
+		hmacHash: hmac.New(hash.New, secret[:size]),
+	}
+}
+
+func (proc taPacketProcessor) Process(p *packet) []byte {
+	return p.Bytes()
 }
 
 // parsePacketFromBytes produces a packet after parsing the common header.
