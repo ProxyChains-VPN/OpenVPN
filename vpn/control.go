@@ -6,8 +6,6 @@ package vpn
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -15,7 +13,6 @@ import (
 	"math"
 	"net"
 	"sync"
-	"time"
 )
 
 var (
@@ -39,7 +36,6 @@ type session struct {
 	ackQueue        chan *packet
 	mu              sync.Mutex
 	Log             Logger
-	builder         packetBuilder
 }
 
 // newSession returns a session ready to be used.
@@ -128,12 +124,14 @@ func (s *session) isNextPacket(p *packet) bool {
 
 // control implements the controlHandler interface.
 // Like for true pirates, there is no state in control.
-type control struct{}
+type control struct {
+	builder *packetBuilder
+}
 
 // SendHardReset sends a control packet with the HardResetClientv2 header,
 // over the passed net.Conn.
 func (c *control) SendHardReset(conn net.Conn, s *session) error {
-	_, err := sendControlPacket(conn, s, pControlHardResetClientV2, 0, []byte(""))
+	_, err := sendControlPacket(conn, s, pControlHardResetClientV2, 0, []byte(""), c)
 	return err
 }
 
@@ -188,19 +186,21 @@ func (c *control) ReadControlMessage(b []byte) (*keySource, string, error) {
 // over the passed connection. It returns an error if the operation cannot be
 // completed successfully.
 func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
-	return sendACKFn(conn, s, pid)
+	return sendACKFn(conn, s, pid, c)
 }
 
 // sendACK is used by controlHandler.SendACK() and by TLSConn.Read()
-func sendACK(conn net.Conn, s *session, pid packetID) error {
+func sendACK(conn net.Conn, s *session, pid packetID, c *control) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
 	//TODO: kostylnoe
-	if pid == packetID(4) {
+	/*if pid == packetID(4) {
 		return nil
-	}
+	}*/
 
-	out := append([]byte{0x28}, s.LocalSessionID[:]...)
+	p := newACKPacket(pid, s)
+	out := c.builder.buildPacket(p)
+	/*out := append([]byte{0x28}, s.LocalSessionID[:]...)
 
 	ackBytes := binary.BigEndian.AppendUint32([]byte{1}, uint32(pid-1))
 	fmt.Println(ackBytes)
@@ -225,11 +225,11 @@ func sendACK(conn net.Conn, s *session, pid packetID) error {
 	out = append(out, packetIDBytes...)
 	out = append(out, timeBytes...)
 	out = append(out, ackBytes...)
-	out = append(out, s.RemoteSessionID[:]...)
+	out = append(out, s.RemoteSessionID[:]...)*/
 
 	out = maybeAddSizeFrame(conn, out)
 
-	_, err = conn.Write(out)
+	_, err := conn.Write(out)
 	if err != nil {
 		return err
 	}
@@ -244,14 +244,9 @@ var sendACKFn = sendACK
 
 var _ controlHandler = &control{} // Ensure that we implement controlHandler
 
-// TODO: что-то сделать с этим костылем (сделать парсинг ключа
-// TODO: сделать интерфейсы для удобной работы как с tls-auth, так и без
-// TODO: возможность работы с различными алгоритмами шифрования
-const secretKey = "4c3e03723a0c92509c1c845b604b060a361a45a1886814de50610d824298aedcb8dfc049d0ef381f432ce846a9207ebedacfde77b054a80a330f1e1e3e2897b9"
-
 // sendControlPacket crafts a control packet with the given opcode and payload,
 // and writes it to the passed net.Conn.
-func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload []byte) (n int, err error) {
+func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload []byte, c *control) (n int, err error) {
 	if s == nil {
 		return 0, fmt.Errorf("%w:%s", errBadInput, "nil session")
 	}
@@ -263,13 +258,13 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	if err != nil {
 		return 0, err
 	}
-	ackBytes := []byte{0, 0, 0, 0, 0}
+	/*ackBytes := []byte{0, 0, 0, 0, 0}
 	timestamp := uint32(time.Now().Unix())
 	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
-	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(p.id))
+	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(p.id))*/
 
-	out := p.Bytes()
-	out = []byte{0x38}
+	out := c.builder.buildPacket(p)
+	/*out = []byte{0x38}
 	out = append(out, s.LocalSessionID[:]...)
 
 	secret, _ := hex.DecodeString(secretKey)
@@ -283,7 +278,7 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 
 	out = append(out, packetIDBytes...)
 	out = append(out, timeBytes...)
-	out = append(out, ackBytes...)
+	out = append(out, ackBytes...)*/
 
 	out = maybeAddSizeFrame(conn, out)
 

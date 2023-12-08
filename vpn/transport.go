@@ -9,8 +9,6 @@ package vpn
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -76,7 +74,7 @@ type tlsModeTransporter interface {
 	ReadPacket() (p *packet, err error)
 
 	// WritePacket writes an OpenVPN packet to the wire.
-	WritePacket(opcodeKeyID uint8, data []byte) error
+	WritePacket(opcodeKeyID uint8, data []byte, c *control) error
 
 	// SetDeadline sets the underlying conn's deadline.
 	SetDeadline(deadline time.Time) error
@@ -134,7 +132,7 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 }
 
 // WritePacket writes a packet to the underlying conn. It expect the opcode of the packet and a byte array containing the serialized data. It returns an error if the write did not succeed.
-func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
+func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte, c *control) error {
 	if t.session == nil {
 		return fmt.Errorf("%w:%s", errBadInput, "tlsTransport badly initialized")
 
@@ -148,7 +146,9 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	p.localSessionID = t.session.LocalSessionID
 	p.id = id
 
-	out := append([]byte{0x20}, t.session.LocalSessionID[:]...)
+	out := c.builder.buildPacket(p)
+
+	/*out := append([]byte{0x20}, t.session.LocalSessionID[:]...)
 
 	ackBytes := []byte{0, 0, 0, 0, 1}
 	timestamp := uint32(time.Now().Unix())
@@ -168,7 +168,7 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte) error {
 	out = append(out, packetIDBytes...)
 	out = append(out, timeBytes...)
 	out = append(out, ackBytes...)
-	out = append(out, data...)
+	out = append(out, data...)*/
 
 	out = maybeAddSizeFrame(t.Conn, out)
 
@@ -190,6 +190,7 @@ type controlChannelTLSConn struct {
 	// we need to buffer reads because the tls records request less than
 	// the payload we receive.
 	bufReader *bytes.Buffer
+	control   *control
 
 	doReadFromConnFn  func(*controlChannelTLSConn, []byte) (bool, int, error)
 	doReadFromQueueFn func(*controlChannelTLSConn, []byte) (bool, int, error)
@@ -198,7 +199,7 @@ type controlChannelTLSConn struct {
 // newControlChannelTLSConn returns a controlChannelTLSConn. It requires the on-the-wire
 // net.Conn that will be used underneath, and a configured session. It returns
 // also an error if the operation cannot be completed.
-func newControlChannelTLSConn(conn net.Conn, s *session) (*controlChannelTLSConn, error) {
+func newControlChannelTLSConn(conn net.Conn, s *session, c *control) (*controlChannelTLSConn, error) {
 	transport, err := newTLSModeTransport(conn, s)
 	if err != nil {
 		return &controlChannelTLSConn{}, err
@@ -209,6 +210,7 @@ func newControlChannelTLSConn(conn net.Conn, s *session) (*controlChannelTLSConn
 		session:   s,
 		transport: transport,
 		bufReader: buf,
+		control:   c,
 	}
 	tlsConn.doReadFromConnFn = doReadFromConn
 	tlsConn.doReadFromQueueFn = doReadFromQueue
@@ -246,7 +248,7 @@ func doReadFromConn(c *controlChannelTLSConn, b []byte) (bool, int, error) {
 	}
 	switch c.canRead(p) {
 	case true:
-		if err := sendACKFn(c.conn, c.session, p.id); err != nil {
+		if err := sendACKFn(c.conn, c.session, p.id, c.control); err != nil {
 			return true, 0, err
 		}
 		n, err := writeAndReadFromBufferFn(c.bufReader, b, p.payload)
@@ -263,7 +265,7 @@ func doReadFromConn(c *controlChannelTLSConn, b []byte) (bool, int, error) {
 func doReadFromQueue(c *controlChannelTLSConn, b []byte) (bool, int, error) {
 	for p := range c.session.ackQueue {
 		if c.canRead(p) {
-			if err := sendACKFn(c.conn, c.session, p.id); err != nil {
+			if err := sendACKFn(c.conn, c.session, p.id, c.control); err != nil {
 				return true, 0, err
 			}
 			n, err := writeAndReadFromBufferFn(c.bufReader, b, p.payload)
@@ -304,7 +306,7 @@ var writeAndReadFromBufferFn = writeAndReadFromBuffer
 
 // Write writes the given data to the tls connection.
 func (c *controlChannelTLSConn) Write(b []byte) (int, error) {
-	err := c.transport.WritePacket(uint8(pControlV1), b)
+	err := c.transport.WritePacket(uint8(pControlV1), b, c.control)
 	if err != nil {
 		logger.Errorf("tls write: %s", err.Error())
 		return 0, err

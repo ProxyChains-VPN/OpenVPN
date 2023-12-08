@@ -601,7 +601,7 @@ func parseInlineTag(o *Options, tag string, buf *bytes.Buffer) error {
 	case "key":
 		o.Key = b
 	case "ta":
-		o.Ta = b
+		o.Ta, _ = parseTAFromBytes(b)
 	default:
 		return fmt.Errorf("%w: unknown tag: %s", errBadInput, tag)
 	}

@@ -74,8 +74,9 @@ type muxer struct {
 	// control and data are the handlers for the control and data channels.
 	// they implement the methods needed for the handshake and handling of
 	// packets.
-	control controlHandler
-	data    dataHandler
+	control *control
+	//control controlHandler
+	data dataHandler
 
 	// bufReader is used to buffer data channel reads. We only write to
 	// this buffer when we have correctly decrypted an incoming
@@ -148,7 +149,9 @@ type muxFactory func(conn net.Conn, options *Options, tunnel *tunnelInfo) (vpnMu
 // newMuxerFromOptions returns a configured muxer, and any error if the
 // operation could not be completed.
 func newMuxerFromOptions(conn net.Conn, options *Options, tunnel *tunnelInfo) (vpnMuxer, error) {
-	control := &control{}
+	control := &control{
+		builder: newPacketBuilder(options.Ta, strToHash(options.Auth)),
+	}
 	session, err := newSession()
 	if err != nil {
 		return &muxer{}, err
@@ -236,7 +239,7 @@ func (m *muxer) handshake() error {
 		return fmt.Errorf("%w: %s", ErrBadTLSHandshake, err)
 
 	}
-	tlsConn, err := newControlChannelTLSConn(m.conn, m.session)
+	tlsConn, err := newControlChannelTLSConn(m.conn, m.session, m.control)
 	m.emit(EventTLSConn)
 
 	if err != nil {

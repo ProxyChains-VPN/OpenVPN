@@ -100,13 +100,6 @@ type packetProcessor interface {
 	Process(p *packet) []byte
 }
 
-type mockPacketProcessor struct {
-}
-
-type taPacketProcessor struct {
-	hmacHash hash.Hash
-}
-
 func newPacketBuilder(taBytes []byte, hash crypto.Hash) *packetBuilder {
 	var taProcessor packetProcessor
 	if taBytes != nil {
@@ -125,8 +118,15 @@ func (builder *packetBuilder) buildPacket(p *packet) []byte {
 	return result
 }
 
+type mockPacketProcessor struct {
+}
+
 func (proc mockPacketProcessor) Process(p *packet) []byte {
 	return p.Bytes()
+}
+
+type taPacketProcessor struct {
+	hmacHash hash.Hash
 }
 
 func newTaPacketProcessor(secretKey string, hash crypto.Hash) *taPacketProcessor {
@@ -134,6 +134,8 @@ func newTaPacketProcessor(secretKey string, hash crypto.Hash) *taPacketProcessor
 	secretKey = secretKey[3*l/4:]
 	size := hash.Size()
 	secret, _ := hex.DecodeString(secretKey)
+
+	fmt.Println(secretKey)
 
 	return &taPacketProcessor{
 		hmacHash: hmac.New(hash.New, secret[:size]),
@@ -153,10 +155,25 @@ func (proc taPacketProcessor) Process(p *packet) []byte {
 	proc.hmacHash.Write(pBytes)
 
 	hmacBytes := proc.hmacHash.Sum(nil)
-	result := append(pBytes[:9], hmacBytes...)
+	result := make([]byte, 9)
+	copy(result, pBytes[:9])
+	result = append(result, hmacBytes...)
+	result = append(result, replay...)
 	result = append(result, pBytes[9:]...)
 
 	return result
+}
+
+func strToHash(auth string) crypto.Hash {
+	switch auth {
+	case "SHA1":
+		return crypto.SHA1
+	case "SHA256":
+		return crypto.SHA256
+	case "SHA512":
+		return crypto.SHA512
+	}
+	return crypto.SHA1
 }
 
 // parsePacketFromBytes produces a packet after parsing the common header.
