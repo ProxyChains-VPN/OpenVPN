@@ -13,18 +13,16 @@ package main
 
 import (
 	"bytes"
-	"log"
-	"math/rand"
-	"time"
-
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
-
-	"github.com/ooni/minivpn/vpn"
+	"log"
+	"math/rand"
+	"openVPN/vpn"
+	"time"
 )
 
 func main() {
-	opts, err := vpn.ParseConfigFile("data/calyx/config")
+	opts, err := vpn.ParseConfigFile("openvpn/kolosya.conf")
 	if err != nil {
 		panic(err)
 	}

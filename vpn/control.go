@@ -137,10 +137,10 @@ func (c *control) SendHardReset(conn net.Conn, s *session) error {
 
 // ParseHardReset extracts the sessionID from a hard-reset server response, and
 // an error if the operation was not successful.
-func (c *control) ParseHardReset(b []byte) (sessionID, error) {
+func (c *control) ParseHardReset(b []byte) (*packet, error) {
 	p, err := newServerHardReset(b)
 	if err != nil {
-		return sessionID{}, err
+		return nil, err
 	}
 	return parseServerHardResetPacket(p)
 }
@@ -193,39 +193,8 @@ func (c *control) SendACK(conn net.Conn, s *session, pid packetID) error {
 func sendACK(conn net.Conn, s *session, pid packetID, c *control) error {
 	panicIfFalse(len(s.RemoteSessionID) != 0, "tried to ack with null remote")
 
-	//TODO: kostylnoe
-	/*if pid == packetID(4) {
-		return nil
-	}*/
-
 	p := newACKPacket(pid, s)
 	out := c.builder.buildPacket(p)
-	/*out := append([]byte{0x28}, s.LocalSessionID[:]...)
-
-	ackBytes := binary.BigEndian.AppendUint32([]byte{1}, uint32(pid-1))
-	fmt.Println(ackBytes)
-	timestamp := uint32(time.Now().Unix())
-	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
-	id, err := s.LocalPacketID()
-	if err != nil {
-		return nil
-	}
-	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(id))
-
-	secret, _ := hex.DecodeString(secretKey)
-	hmacHash := hmac.New(sha1.New, secret[:20])
-	hmacHash.Write(packetIDBytes)
-	hmacHash.Write(timeBytes)
-	hmacHash.Write(out)
-	hmacHash.Write(ackBytes)
-	hmacHash.Write(s.RemoteSessionID[:])
-	hmacResult := hmacHash.Sum(nil)
-	out = append(out, hmacResult...)
-
-	out = append(out, packetIDBytes...)
-	out = append(out, timeBytes...)
-	out = append(out, ackBytes...)
-	out = append(out, s.RemoteSessionID[:]...)*/
 
 	out = maybeAddSizeFrame(conn, out)
 
@@ -253,33 +222,12 @@ func sendControlPacket(conn net.Conn, s *session, opcode int, ack int, payload [
 	p := newPacketFromPayload(uint8(opcode), 0, payload)
 	p.localSessionID = s.LocalSessionID
 
-	s.localPacketID++
 	p.id, err = s.LocalPacketID()
 	if err != nil {
 		return 0, err
 	}
-	/*ackBytes := []byte{0, 0, 0, 0, 0}
-	timestamp := uint32(time.Now().Unix())
-	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
-	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(p.id))*/
 
 	out := c.builder.buildPacket(p)
-	/*out = []byte{0x38}
-	out = append(out, s.LocalSessionID[:]...)
-
-	secret, _ := hex.DecodeString(secretKey)
-	hmacHash := hmac.New(sha1.New, secret[:20])
-	hmacHash.Write(packetIDBytes)
-	hmacHash.Write(timeBytes)
-	hmacHash.Write(out)
-	hmacHash.Write(ackBytes)
-	hmacResult := hmacHash.Sum(nil)
-	out = append(out, hmacResult...)
-
-	out = append(out, packetIDBytes...)
-	out = append(out, timeBytes...)
-	out = append(out, ackBytes...)*/
-
 	out = maybeAddSizeFrame(conn, out)
 
 	logger.Info(fmt.Sprintf("control write: (%d bytes)\n", len(out)))

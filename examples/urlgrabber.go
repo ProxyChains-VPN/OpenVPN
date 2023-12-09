@@ -40,7 +40,7 @@ func main() {
 		},
 	}
 
-	resp, err := client.Get("http://lib.ru")
+	resp, err := client.Get("https://example.com/")
 	if err != nil {
 		log.Panic(err)
 	}

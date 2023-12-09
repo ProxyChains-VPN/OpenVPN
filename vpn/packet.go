@@ -199,9 +199,8 @@ func parsePacketFromBytes(buf []byte) (*packet, error) {
 		opcode:  opcode,
 		keyID:   keyID,
 		payload: payload,
-		id:      packetID(binary.BigEndian.Uint32(buf[29:33])),
+		//id:      packetID(binary.BigEndian.Uint32(buf[10:14])),
 	}
-	fmt.Printf("Got packet №%d\n", p.id)
 	return parsePacket(p)
 }
 
@@ -302,18 +301,8 @@ func parseControlPacket(p *packet) (*packet, error) {
 		return p, fmt.Errorf("%w: bad sessionID: %s", errBadInput, err)
 	}
 
-	buf.Next(20)
-
-	// packet id
-	if p.opcode != pACKV1 {
-		val, err := bufReadUint32(buf)
-		if err != nil {
-			return p, fmt.Errorf("%w: bad packetID: %s", errBadInput, err)
-		}
-		p.id = packetID(val)
-	}
-
-	buf.Next(4)
+	//buf.Next(20)
+	//buf.Next(4)
 
 	// ack array
 	ackBuf, err := buf.ReadByte()
@@ -338,9 +327,19 @@ func parseControlPacket(p *packet) (*packet, error) {
 		}
 	}
 
-	buf.Next(4)
+	// packet id
+	if p.opcode != pACKV1 {
+		val, err := bufReadUint32(buf)
+		if err != nil {
+			return p, fmt.Errorf("%w: bad packetID: %s", errBadInput, err)
+		}
+		p.id = packetID(val)
+	}
+
+	//buf.Next(4)
 
 	// payload
+	fmt.Printf("Got packet №%d\n", p.id)
 	p.payload = buf.Bytes()
 	return p, nil
 }
@@ -453,17 +452,22 @@ func newServerHardReset(b []byte) (*serverHardReset, error) {
 
 // parseServerHardResetPacket returns the sessionID received from the server, or an
 // error if we could not parse the message.
-func parseServerHardResetPacket(p *serverHardReset) (sessionID, error) {
+func parseServerHardResetPacket(p *serverHardReset) (*packet, error) {
 	if len(p.payload) < 10 {
-		return sessionID{}, fmt.Errorf("%w: %s", errBadReset, "not enough bytes")
+		return nil, fmt.Errorf("%w: %s", errBadReset, "not enough bytes")
 	}
 	// BUG: this function assumes keyID == 0
 	if p.payload[0] != 0x40 {
-		return sessionID{}, fmt.Errorf("%w: %s", errBadReset, "bad header")
+		return nil, fmt.Errorf("%w: %s", errBadReset, "bad header")
 	}
 	var rs sessionID
 	copy(rs[:], p.payload[1:9])
-	return rs, nil
+	var pid packetID
+	binary.BigEndian.Uint32(p.payload[9:13])
+	return &packet{
+		remoteSessionID: rs,
+		id:              pid,
+	}, nil
 }
 
 // newACKPacket returns a packet with the P_ACK_V1 opcode.

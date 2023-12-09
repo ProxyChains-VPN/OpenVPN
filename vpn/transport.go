@@ -120,11 +120,6 @@ func (t *tlsTransport) ReadPacket() (*packet, error) {
 	}
 
 	if p.isACK() {
-		//TODO: think about it
-		/*if err := sendACKFn(t.Conn, t.session, p.id); err != nil {
-			return &packet{}, err
-		}*/
-		t.session.lastACK++
 		logger.Warn("tls: got ACK (ignored)")
 		return &packet{}, nil
 	}
@@ -147,29 +142,6 @@ func (t *tlsTransport) WritePacket(opcodeKeyID uint8, data []byte, c *control) e
 	p.id = id
 
 	out := c.builder.buildPacket(p)
-
-	/*out := append([]byte{0x20}, t.session.LocalSessionID[:]...)
-
-	ackBytes := []byte{0, 0, 0, 0, 1}
-	timestamp := uint32(time.Now().Unix())
-	timeBytes := binary.BigEndian.AppendUint32(nil, timestamp)
-	packetIDBytes := binary.BigEndian.AppendUint32(nil, uint32(p.id))
-
-	secret, _ := hex.DecodeString(secretKey)
-	hmacHash := hmac.New(sha1.New, secret[:20])
-	hmacHash.Write(packetIDBytes)
-	hmacHash.Write(timeBytes)
-	hmacHash.Write(out)
-	hmacHash.Write(ackBytes)
-	hmacHash.Write(data)
-	hmacResult := hmacHash.Sum(nil)
-	out = append(out, hmacResult...)
-
-	out = append(out, packetIDBytes...)
-	out = append(out, timeBytes...)
-	out = append(out, ackBytes...)
-	out = append(out, data...)*/
-
 	out = maybeAddSizeFrame(t.Conn, out)
 
 	logger.Debug(fmt.Sprintln("tls write:", len(out)))

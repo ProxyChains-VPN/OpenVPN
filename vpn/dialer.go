@@ -7,7 +7,10 @@ package vpn
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"net"
 	"net/netip"
 	"sync"
@@ -18,8 +21,10 @@ import (
 )
 
 var (
-	openDNSPrimary   = "208.67.222.222"
-	openDNSSecondary = "208.67.220.220"
+	openDNSPrimary     = "208.67.222.222"
+	openDNSSecondary   = "208.67.220.220"
+	googleDNSPrimary   = "8.8.8.8"
+	googleDNSSecondary = "8.8.4.4"
 )
 
 // A TunDialer contains options for obtaining a network connection tunneled
@@ -48,8 +53,8 @@ type TunDialer struct {
 func NewTunDialer(client *Client) *TunDialer {
 	td := &TunDialer{
 		client: client,
-		ns1:    openDNSPrimary,
-		ns2:    openDNSSecondary,
+		ns1:    googleDNSPrimary,
+		ns2:    googleDNSSecondary,
 	}
 	return td
 }
@@ -180,17 +185,20 @@ type device struct {
 // TODO(https://github.com/ooni/minivpn/issues/27): we probably want a way of
 // shutting them down too.
 func (d *device) Up() {
+	tunIP := net.ParseIP(d.vpn.LocalAddr().String())
+	vpnIP := net.ParseIP(d.vpn.RemoteAddr().String())
+
 	go func() {
 		b := make([]byte, 4096)
 		bufs := [][]byte{b}
 		sizes := []int{4096}
 		for {
-			n, err := d.tun.Read(bufs, sizes, 0) // zero offset
+			_, err := d.tun.Read(bufs, sizes, 0) // zero offset
 			if err != nil {
 				logger.Errorf("tun read error: %v", err)
 				break
 			}
-			_, err = d.vpn.Write(b[0:n])
+			_, err = d.vpn.Write(b[0:sizes[0]])
 			if err != nil {
 				logger.Errorf("vpn write error: %v", err)
 				break
@@ -206,8 +214,18 @@ func (d *device) Up() {
 				logger.Errorf("vpn read error: %v", err)
 				break
 			}
-
-			_, err = d.tun.Write([][]byte{b[0:n]}, 0) // zero offset
+			ip := &layers.IPv4{
+				Version:  4,
+				Protocol: layers.IPProtocolTCP,
+				SrcIP:    vpnIP,
+				DstIP:    tunIP,
+			}
+			tcp := &layers.TCP{}
+			buf := gopacket.NewSerializeBuffer()
+			opts := gopacket.SerializeOptions{}
+			_ = gopacket.SerializeLayers(buf, opts, ip, tcp, gopacket.Payload(b[0:n]))
+			fmt.Println(hex.Dump(buf.Bytes()))
+			_, err = d.tun.Write([][]byte{buf.Bytes()}, 0) // zero offset
 			if err != nil {
 				logger.Errorf("tun write error: %v", err)
 				break

@@ -118,7 +118,7 @@ type vpnMuxer interface {
 // controlHandler manages the control "channel".
 type controlHandler interface {
 	SendHardReset(net.Conn, *session) error
-	ParseHardReset([]byte) (sessionID, error)
+	ParseHardReset([]byte) (*packet, error)
 	SendACK(net.Conn, *session, packetID) error
 	PushRequest() []byte
 	ReadPushResponse([]byte) map[string][]string
@@ -287,14 +287,14 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 		return err
 	}
 
-	remoteSessionID, err := m.control.ParseHardReset(resp)
+	p, err := m.control.ParseHardReset(resp)
 
 	// here we could check if we have received a remote session id but
 	// our session.remoteSessionID is != from all zeros
 	if err != nil {
 		return err
 	}
-	m.session.RemoteSessionID = remoteSessionID
+	m.session.RemoteSessionID = p.remoteSessionID
 
 	logger.Infof("Remote session ID: %x", m.session.RemoteSessionID)
 	logger.Infof("Local session ID:  %x", m.session.LocalSessionID)
@@ -302,7 +302,7 @@ func (m *muxer) Reset(conn net.Conn, s *session) error {
 	// we assume id is 0, this is the first packet we ack.
 	// XXX I could parse the real packet id from server instead. this
 	// _might_ be important when re-keying?
-	return m.control.SendACK(m.conn, m.session, packetID(1))
+	return m.control.SendACK(m.conn, m.session, p.id)
 }
 
 //
@@ -395,8 +395,6 @@ func (m *muxer) readTLSPacket() ([]byte, error) {
 // packet, it will store the remote key and the parts of the remote options
 // that will be of use later.
 func (m *muxer) readAndLoadRemoteKey() error {
-	//TODO: mega-kostyl
-	m.session.lastACK++
 	data, err := m.readTLSPacket()
 	if err != nil {
 		return err
